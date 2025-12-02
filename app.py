@@ -5,27 +5,38 @@ from fastapi import FastAPI, Body, HTTPException, status
 from fastapi.responses import Response
 from pydantic import ConfigDict, BaseModel, Field, EmailStr
 from pydantic.functional_validators import BeforeValidator
+# Before validator converts the input to a string before validation occurs
+# This says: "Before you validate that this is a string, first convert 
+# whatever input you get to a string."
 
 from typing_extensions import Annotated
 
-from bson import ObjectId
-import asyncio
+from bson import ObjectId # Mongo uses bson, ObjectId is the type for ids in mongo
 from pymongo import AsyncMongoClient
 from pymongo import ReturnDocument
+from dotenv import load_dotenv
 
+# Just need to do pip install pymongo and pip install "fastapi[standard]"
+# Ignore requirements.txt
+
+load_dotenv()
+MONGO_URL = os.getenv("MONGO_URL")
 
 app = FastAPI(
     title="Student Course API",
     summary="A sample application showing how to use FastAPI to add a ReST API to a MongoDB collection.",
 )
-client = AsyncMongoClient(os.environ["MONGODB_URL"])
+client = AsyncMongoClient(MONGO_URL)
 db = client.college
 student_collection = db.get_collection("students")
 
 # Represents an ObjectId field in the database.
 # It will be represented as a `str` on the model so that it can be serialized to JSON.
 PyObjectId = Annotated[str, BeforeValidator(str)]
-
+# Creating our own type, it automatically converts
+# mongodb's ObjectID to a string for API responses (JSON)
+# We also don't necessarily need to do this, we could just
+# change into string when getting ID from mongo
 
 class StudentModel(BaseModel):
     """
@@ -35,22 +46,20 @@ class StudentModel(BaseModel):
     # The primary key for the StudentModel, stored as a `str` on the instance.
     # This will be aliased to `_id` when sent to MongoDB,
     # but provided as `id` in the API requests and responses.
-    id: Optional[PyObjectId] = Field(alias="_id", default=None)
-    name: str = Field(...)
+    '''
+    MongoDB uses _id as the default identifier for documents. 
+    However, in Pydantic, field names that start with an underscore 
+    are treated as private attributes and cannot be assigned values directly. 
+    To work around this, we can name the field id in the Pydantic model, but given 
+    an alias of _id so it maps correctly to MongoDB.
+    '''
+    id: PyObjectId | None = Field(alias="_id", default=None)
+    name: str = Field(...) # ... means this is requirede
     email: EmailStr = Field(...)
     course: str = Field(...)
-    gpa: float = Field(..., le=4.0)
+    gpa: float = Field(..., le=4.0) # less than
     model_config = ConfigDict(
-        populate_by_name=True,
-        arbitrary_types_allowed=True,
-        json_schema_extra={
-            "example": {
-                "name": "Jane Doe",
-                "email": "jdoe@example.com",
-                "course": "Experiments, Science, and Fashion in Nanophotonics",
-                "gpa": 3.0,
-            }
-        },
+        populate_by_name=True, # Allows the model to be initialized using either the field name (id) or its alias (_id)
     )
 
 
@@ -58,22 +67,12 @@ class UpdateStudentModel(BaseModel):
     """
     A set of optional updates to be made to a document in the database.
     """
-
-    name: Optional[str] = None
-    email: Optional[EmailStr] = None
-    course: Optional[str] = None
-    gpa: Optional[float] = None
+    name: str | None = None
+    email: EmailStr | None = None
+    course: str | None = None
+    gpa: float | None = None
     model_config = ConfigDict(
-        arbitrary_types_allowed=True,
-        json_encoders={ObjectId: str},
-        json_schema_extra={
-            "example": {
-                "name": "Jane Doe",
-                "email": "jdoe@example.com",
-                "course": "Experiments, Science, and Fashion in Nanophotonics",
-                "gpa": 3.0,
-            }
-        },
+        json_encoders={ObjectId: str}, # ensures ObjectID gets converted into string for JSON response 
     )
 
 
@@ -92,9 +91,9 @@ class StudentCollection(BaseModel):
     response_description="Add new student",
     response_model=StudentModel,
     status_code=status.HTTP_201_CREATED,
-    response_model_by_alias=False,
+    response_model_by_alias=False, # 'Use the alias name when returning to the user'
 )
-async def create_student(student: StudentModel = Body(...)):
+async def create_student(student: StudentModel):
     """
     Insert a new student record.
 
@@ -133,6 +132,7 @@ async def show_student(id: str):
     Get the record for a specific student, looked up by `id`.
     """
     if (
+        # Mongo ID's are ObjectId's not strings like how we are used to 
         student := await student_collection.find_one({"_id": ObjectId(id)})
     ) is not None:
         return student
@@ -146,7 +146,7 @@ async def show_student(id: str):
     response_model=StudentModel,
     response_model_by_alias=False,
 )
-async def update_student(id: str, student: UpdateStudentModel = Body(...)):
+async def update_student(id: str, student: UpdateStudentModel):
     """
     Update individual fields of an existing student record.
 
