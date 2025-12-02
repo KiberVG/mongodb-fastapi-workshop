@@ -12,13 +12,12 @@ activate your Python virtualenv, and then run the following from your terminal (
 
 ```bash
 # Install the requirements:
-pip install -r requirements.txt
+pip install "fastapi[standard]"
+pip install pymongo
 
 # Configure the location of your MongoDB database:
-export MONGODB_URL="mongodb+srv://<username>:<password>@<url>/<db>?retryWrites=true&w=majority"
+MONGODB_URL="mongodb+srv://<username>:<password>@<url>/<db>?retryWrites=true&w=majority"
 
-# Start the service:
-uvicorn app:app --reload
 ```
 
 (Check out [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) if you need a MongoDB database.)
