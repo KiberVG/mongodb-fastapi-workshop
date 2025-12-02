@@ -1,7 +1,7 @@
 import os
-from typing import Optional, List
+from typing import List
 
-from fastapi import FastAPI, Body, HTTPException, status
+from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import Response
 from pydantic import ConfigDict, BaseModel, Field, EmailStr
 from pydantic.functional_validators import BeforeValidator
