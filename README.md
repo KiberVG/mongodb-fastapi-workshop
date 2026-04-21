@@ -1,28 +1,57 @@
-# MongoDB with FastAPI
+# MongoDB FastAPI Workshop
 
-This is a small sample project demonstrating how to build an API with [MongoDB](https://developer.mongodb.com/) and [FastAPI](https://fastapi.tiangolo.com/).
-It was written to accompany a [blog post](https://developer.mongodb.com/quickstart/python-quickstart-fastapi/) - you should go read it!
+This project contains:
 
-If you want to fastrack your project even further, check out the [MongoDB FastAPI app generator](https://github.com/mongodb-labs/full-stack-fastapi-mongodb) and eliminate much of the boilerplate of getting started.
+- A FastAPI backend (`app.py`) connected to MongoDB Atlas
+- A React frontend (`frontend/`) for managing student records
 
-## TL;DR
+## 1) Backend setup (FastAPI + Atlas)
 
-If you really don't want to read the [blog post](https://developer.mongodb.com/quickstart/python-quickstart-fastapi/) and want to get up and running,
-activate your Python virtualenv, and then run the following from your terminal (edit the `MONGODB_URL` first!):
+Create and activate a virtual environment, then install dependencies:
 
 ```bash
-# Install the requirements:
-pip install "fastapi[standard]"
-pip install pymongo
-
-# Configure the location of your MongoDB database:
-MONGODB_URL="mongodb+srv://<username>:<password>@<url>/<db>?retryWrites=true&w=majority"
-
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-(Check out [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) if you need a MongoDB database.)
+Create your environment file:
 
-Now you can load http://localhost:8000/docs in your browser ... but there won't be much to see until you've inserted some data.
+```bash
+cp .env.example .env
+```
 
-If you have any questions or suggestions, check out the [MongoDB Community Forums](https://developer.mongodb.com/community/forums/)!
-# mongodb-fastapi-workshop
+Edit `.env` and set your Atlas connection string:
+
+```bash
+MONGO_URL=mongodb+srv://<username>:<password>@<cluster-url>/<db>?retryWrites=true&w=majority
+```
+
+Run the API:
+
+```bash
+uvicorn app:app --reload
+```
+
+Open API docs at [http://localhost:8000/docs](http://localhost:8000/docs).
+
+## 2) Frontend setup (React + Vite)
+
+In a new terminal:
+
+```bash
+cd frontend
+npm install
+cp .env.example .env
+npm run dev
+```
+
+Frontend runs at [http://localhost:5173](http://localhost:5173) and calls the backend at `VITE_API_BASE_URL`.
+
+## 3) Quick testing
+
+With backend running:
+
+```bash
+pytest test_api.py
+```

@@ -2,6 +2,7 @@ import os
 from typing import List
 
 from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import ConfigDict, BaseModel, Field, EmailStr
 from pydantic.functional_validators import BeforeValidator
@@ -21,11 +22,24 @@ from dotenv import load_dotenv
 
 load_dotenv()
 MONGO_URL = os.getenv("MONGO_URL")
+if not MONGO_URL:
+    raise RuntimeError("MONGO_URL is not set. Add it to your environment or .env file.")
 
 app = FastAPI(
     title="Student Course API",
     summary="A sample application showing how to use FastAPI to add a ReST API to a MongoDB collection.",
 )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 client = AsyncMongoClient(MONGO_URL)
 db = client.college
 student_collection = db.get_collection("students")
@@ -169,7 +183,7 @@ async def update_student(id: str, student: UpdateStudentModel):
             raise HTTPException(status_code=404, detail=f"Student {id} not found")
 
     # The update is empty, but we should still return the matching document:
-    if (existing_student := await student_collection.find_one({"_id": id})) is not None:
+    if (existing_student := await student_collection.find_one({"_id": ObjectId(id)})) is not None:
         return existing_student
 
     raise HTTPException(status_code=404, detail=f"Student {id} not found")
