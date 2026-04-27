@@ -4,13 +4,7 @@ from typing import List
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
-from pydantic import ConfigDict, BaseModel, Field, EmailStr
-from pydantic.functional_validators import BeforeValidator
-# Before validator converts the input to a string before validation occurs
-# This says: "Before you validate that this is a string, first convert 
-# whatever input you get to a string."
-
-from typing_extensions import Annotated
+from pydantic import BaseModel, Field, EmailStr
 
 from bson import ObjectId # Mongo uses bson, ObjectId is the type for ids in mongo
 from pymongo import AsyncMongoClient
@@ -44,37 +38,32 @@ client = AsyncMongoClient(MONGO_URL)
 db = client.college
 student_collection = db.get_collection("students")
 
-# Represents an ObjectId field in the database.
-# It will be represented as a `str` on the model so that it can be serialized to JSON.
-PyObjectId = Annotated[str, BeforeValidator(str)]
-# Creating our own type, it automatically converts
-# mongodb's ObjectID to a string for API responses (JSON)
-# We also don't necessarily need to do this, we could just
-# change into string when getting ID from mongo
+def parse_user_id(user_id: str) -> ObjectId:
+    """
+    Convert a user-facing `user_id` string to a MongoDB ObjectId.
+    """
+    if not ObjectId.is_valid(user_id):
+        raise HTTPException(status_code=400, detail=f"Invalid user_id: {user_id}")
+    return ObjectId(user_id)
+
+
+def student_doc_to_api(student_doc: dict) -> dict:
+    """
+    Convert a MongoDB student document into API response shape.
+    """
+    api_student = dict(student_doc)
+    api_student["user_id"] = str(api_student.pop("_id"))
+    return api_student
 
 class StudentModel(BaseModel):
     """
     Container for a single student record.
     """
-
-    # The primary key for the StudentModel, stored as a `str` on the instance.
-    # This will be aliased to `_id` when sent to MongoDB,
-    # but provided as `id` in the API requests and responses.
-    '''
-    MongoDB uses _id as the default identifier for documents. 
-    However, in Pydantic, field names that start with an underscore 
-    are treated as private attributes and cannot be assigned values directly. 
-    To work around this, we can name the field id in the Pydantic model, but given 
-    an alias of _id so it maps correctly to MongoDB.
-    '''
-    id: PyObjectId | None = Field(alias="_id", default=None)
+    user_id: str | None = None
     name: str = Field(...) # ... means this is requirede
     email: EmailStr = Field(...)
     course: str = Field(...)
     gpa: float = Field(..., le=4.0) # less than
-    model_config = ConfigDict(
-        populate_by_name=True, # Allows the model to be initialized using either the field name (id) or its alias (_id)
-    )
 
 
 class UpdateStudentModel(BaseModel):
@@ -85,9 +74,6 @@ class UpdateStudentModel(BaseModel):
     email: EmailStr | None = None
     course: str | None = None
     gpa: float | None = None
-    model_config = ConfigDict(
-        json_encoders={ObjectId: str}, # ensures ObjectID gets converted into string for JSON response 
-    )
 
 
 class StudentCollection(BaseModel):
@@ -103,7 +89,7 @@ class StudentCollection(BaseModel):
 @app.post(
     "/students/",
     response_description="Add new student",
-    response_model=StudentModel,
+    response_model=StudentModel, # Return value
     status_code=status.HTTP_201_CREATED,
     response_model_by_alias=False, # 'Use the alias name when returning to the user'
 )
@@ -111,13 +97,13 @@ async def create_student(student: StudentModel):
     """
     Insert a new student record.
 
-    A unique `id` will be created and provided in the response.
+    A unique `user_id` will be created and provided in the response.
     """
-    new_student = student.model_dump(by_alias=True, exclude=["id"])
+    new_student = student.model_dump(exclude={"user_id"}) 
     result = await student_collection.insert_one(new_student)
     new_student["_id"] = result.inserted_id
 
-    return new_student
+    return student_doc_to_api(new_student)
 
 
 @app.get(
@@ -132,71 +118,75 @@ async def list_students():
 
     The response is unpaginated and limited to 1000 results.
     """
-    return StudentCollection(students=await student_collection.find().to_list(1000))
+    students = await student_collection.find().to_list(1000)
+    return StudentCollection(students=[student_doc_to_api(student) for student in students])
 
 
 @app.get(
-    "/students/{id}",
+    "/students/{user_id}",
     response_description="Get a single student",
     response_model=StudentModel,
     response_model_by_alias=False,
 )
-async def show_student(id: str):
+async def show_student(user_id: str):
     """
-    Get the record for a specific student, looked up by `id`.
+    Get the record for a specific student, looked up by `user_id`.
     """
-    if (
-        # Mongo ID's are ObjectId's not strings like how we are used to 
-        student := await student_collection.find_one({"_id": ObjectId(id)})
-    ) is not None:
-        return student
+    mongo_id = parse_user_id(user_id)
+    if (student := await student_collection.find_one({"_id": mongo_id})) is not None:
+        return student_doc_to_api(student)
 
-    raise HTTPException(status_code=404, detail=f"Student {id} not found")
+    raise HTTPException(status_code=404, detail=f"Student {user_id} not found")
 
 
 @app.put(
-    "/students/{id}",
+    "/students/{user_id}",
     response_description="Update a student",
     response_model=StudentModel,
     response_model_by_alias=False,
 )
-async def update_student(id: str, student: UpdateStudentModel):
+async def update_student(user_id: str, student: UpdateStudentModel):
     """
     Update individual fields of an existing student record.
 
     Only the provided fields will be updated.
     Any missing or `null` fields will be ignored.
     """
+    mongo_id = parse_user_id(user_id)
     student = {
-        k: v for k, v in student.model_dump(by_alias=True).items() if v is not None
+        k: v for k, v in student.model_dump().items() if v is not None
     }
 
     if len(student) >= 1:
         update_result = await student_collection.find_one_and_update(
-            {"_id": ObjectId(id)},
+            {"_id": mongo_id},
             {"$set": student},
             return_document=ReturnDocument.AFTER,
         )
         if update_result is not None:
-            return update_result
+            return student_doc_to_api(update_result)
         else:
-            raise HTTPException(status_code=404, detail=f"Student {id} not found")
+            raise HTTPException(status_code=404, detail=f"Student {user_id} not found")
 
     # The update is empty, but we should still return the matching document:
-    if (existing_student := await student_collection.find_one({"_id": ObjectId(id)})) is not None:
-        return existing_student
+    if (existing_student := await student_collection.find_one({"_id": mongo_id})) is not None:
+        return student_doc_to_api(existing_student)
 
-    raise HTTPException(status_code=404, detail=f"Student {id} not found")
+    raise HTTPException(status_code=404, detail=f"Student {user_id} not found")
 
 
-@app.delete("/students/{id}", response_description="Delete a student")
-async def delete_student(id: str):
+@app.delete("/students/{user_id}", response_description="Delete a student")
+async def delete_student(user_id: str):
     """
     Remove a single student record from the database.
     """
-    delete_result = await student_collection.delete_one({"_id": ObjectId(id)})
+    print(user_id)
+    print(type(user_id))
+    mongo_id = parse_user_id(user_id)
+    print(mongo_id)
+    delete_result = await student_collection.delete_one({"_id": mongo_id})
 
     if delete_result.deleted_count == 1:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-    raise HTTPException(status_code=404, detail=f"Student {id} not found")
+    raise HTTPException(status_code=404, detail=f"Student {user_id} not found")

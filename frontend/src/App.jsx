@@ -67,7 +67,7 @@ function App() {
   }
 
   function startEdit(student) {
-    setEditingId(student.id)
+    setEditingId(student.user_id)
     setForm({
       name: student.name,
       email: student.email,
@@ -114,16 +114,16 @@ function App() {
     }
   }
 
-  async function handleDelete(id) {
+  async function handleDelete(userId) {
     setMessage('')
     try {
-      const response = await fetch(`${STUDENTS_URL}${id}`, { method: 'DELETE' })
+      const response = await fetch(`${STUDENTS_URL}${userId}`, { method: 'DELETE' })
       if (!response.ok) {
         throw new Error('Failed to delete student')
       }
       await loadStudents()
       setMessage('Student deleted.')
-      if (editingId === id) {
+      if (editingId === userId) {
         resetForm()
       }
     } catch (error) {
@@ -217,7 +217,7 @@ function App() {
               <tbody>
                 {students.length ? (
                   students.map((student) => (
-                    <tr key={student.id}>
+                    <tr key={student.user_id}>
                       <td>{student.name}</td>
                       <td>{student.email}</td>
                       <td>{student.course}</td>
@@ -227,7 +227,7 @@ function App() {
                           <button className="small" onClick={() => startEdit(student)}>
                             Edit
                           </button>
-                          <button className="small danger" onClick={() => handleDelete(student.id)}>
+                          <button className="small danger" onClick={() => handleDelete(student.user_id)}>
                             Delete
                           </button>
                         </div>
